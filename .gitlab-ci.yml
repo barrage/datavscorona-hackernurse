@@ -1,0 +1,120 @@
+stages:
+  # - test
+  # - Release to development
+  # - Release to production
+  - Deploy
+
+# test:
+#   stage: test
+#   script:
+#     - echo "test passed virtually (when you create your tests we can do stuff here)"
+#   tags:
+#     - build
+
+#Build and push Docker image for development registry:
+#  stage: Release to development
+#  image:
+#    name: docker:latest
+#    entrypoint: ['/bin/sh', '-c']
+#  variables:
+#    DOCKER_HOST: tcp://localhost:2375
+#  services:
+#    - docker:dind
+#  script:
+#    - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+#    - |
+#      docker build -t "${CI_REGISTRY_IMAGE}:latest" \
+#      -t "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}" \
+#      --build-arg NPM_REGISTRY="${BARRAGE_NPM_REGISTRY}" \
+#      .
+#    - test ! -z "${CI_COMMIT_TAG}" && docker push "${CI_REGISTRY_IMAGE}:latest"
+#    - docker push "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}"
+#  tags:
+#    - build
+
+#Build and push Docker image for production registry:
+#  stage: Release to production
+#  image:
+#    name: docker:latest
+#    entrypoint: ['/bin/sh', '-c']
+#  only:
+#    refs:
+#      - master
+#      - tags
+#  variables:
+#    DOCKER_HOST: tcp://localhost:2375
+#  services:
+#    - docker:dind
+#  script:
+#    - docker info
+#    - docker login -u "${CI_REGISTRY_USER}" -p "${CI_REGISTRY_PASSWORD}" "${CI_REGISTRY}"
+#    - |
+#      docker build -t "${CI_GCR}/${CI_GCR_PROJECT_ID}/${CI_PROJECT_PATH}:latest" \
+#      -t "${CI_GCR}/${CI_GCR_PROJECT_ID}/${CI_PROJECT_PATH}:${CI_COMMIT_REF_SLUG}" \
+#      --build-arg NPM_REGISTRY="${BARRAGE_NPM_REGISTRY}" \
+#      .
+#    - test ! -z "${CI_COMMIT_TAG}" && docker push "${CI_REGISTRY_IMAGE}:latest"
+#    - docker push "${CI_REGISTRY_IMAGE}:${CI_COMMIT_REF_SLUG}"
+#    - docker push "${CI_GCR}/${CI_GCR_PROJECT_ID}/${CI_PROJECT_PATH}:latest"
+#    - docker push "${CI_GCR}/${CI_GCR_PROJECT_ID}/${CI_PROJECT_PATH}:${CI_COMMIT_REF_SLUG}"
+#  tags:
+#    - build
+
+Deploy to K8S cluster Barrage Development:
+  image:
+    name: dtzar/helm-kubectl
+  stage: Deploy
+  only:
+    refs:
+      - master
+  environment:
+    name: development
+    url: https://$CI_PROJECT_PATH_SLUG-$CI_COMMIT_REF_SLUG.barragedevops.com
+  script:
+    - kubectl config get-contexts
+    - kubectl config use-context barrage-dev
+    - |
+      helm upgrade ${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_REF_NAME} ./helm --install \
+      --namespace default \
+      --set fullnameOverride=${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_REF_NAME} \
+      --set image.repository=ivanr/hackingnurse \
+      --set image.tag=latest \
+      --set image.pullPolicy="Always" \
+      --set ingress.enabled=true \
+      --set ingress.hosts[0].host=${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_REF_NAME}.barragedevops.com \
+      --set ingress.hosts[0].paths.path="/" \
+      --set ingress.tls[0].hosts[0]=${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_REF_NAME}.barragedevops.com \
+      --set ingress.tls[0].secretName=barragedevops-tls
+    - kubectl rollout restart deployment/${CI_PROJECT_PATH_SLUG}-${CI_COMMIT_REF_NAME} --namespace default
+  tags:
+    - build
+
+#Deploy to K8S cluster Barrage Production Arwen:
+#  image:
+#    name: dtzar/helm-kubectl
+#  stage: Deploy
+#  environment:
+#    name: production
+#    url: https://admin.travelspot.xyz
+#  only:
+#    refs:
+#      - master
+#      - tags
+#  when: manual
+#  script:
+#    - kubectl config get-contexts
+#    - kubectl config use-context barrage-production-arwen
+#    - |
+#      helm upgrade travelspot-admin-backend ./helm --install \
+#      --namespace travelspot --set fullnameOverride=travelspot-admin-backend \
+#      --set image.repository=${CI_GCR}/${CI_GCR_PROJECT_ID}/barrage/travelspot/travelspot-admin-backend \
+#      --set image.tag=latest \
+#      --set image.pullPolicy="Always" \
+#      --set ingress.enabled=true \
+#      --set ingress.hosts[0].host=admin.travelspot.xyz \
+#      --set ingress.hosts[0].paths.path="/" \
+#      --set ingress.tls[0].hosts[0]=admin.travelspot.xyz \
+#      --set ingress.tls[0].secretName=travelspot-tls
+#    - kubectl rollout restart deployment/travelspot-admin-backend --namespace travelspot
+#  tags:
+#    - build
